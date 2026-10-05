@@ -1,0 +1,238 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Plan {
+  FREE
+  PRO
+}
+
+enum ProjectSignalKind {
+  TESTS
+  CI
+  README_SETUP
+  TS_STRICT
+  FEATURE_PATTERN
+  COMMITS
+}
+
+enum RequirementCategory {
+  AUTH
+  BILLING
+  DEVOPS
+  LANGUAGE
+  TESTING
+  DATA
+  OTHER
+}
+
+enum RequirementPriority {
+  MUST
+  NICE
+}
+
+enum BriefStatus {
+  DRAFT
+  PUBLISHED
+  REVOKED
+}
+
+enum BriefItemState {
+  VERIFIED
+  PARTIAL
+  GAP
+}
+
+model User {
+  id              String            @id @default(uuid())
+  email           String            @unique
+  name            String?
+  githubLogin     String?           @map("github_login")
+  plan            Plan              @default(FREE)
+  createdAt       DateTime          @default(now()) @map("created_at")
+
+  githubConnections GithubConnection[]
+  projects          Project[]
+  jobPosts          JobPost[]
+  briefs            Brief[]
+  subscription      Subscription?
+
+  @@map("users")
+}
+
+model GithubConnection {
+  id                String   @id @default(uuid())
+  userId            String   @map("user_id")
+  githubUserId      BigInt   @unique @map("github_user_id")
+  tokenEncrypted    String   @map("token_encrypted")
+  lastSyncedAt      DateTime? @map("last_synced_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("github_connections")
+}
+
+model Project {
+  id              String           @id @default(uuid())
+  userId          String           @map("user_id")
+  githubRepoId    BigInt           @map("github_repo_id")
+  fullName        String           @map("full_name")
+  isPrivate       Boolean          @default(false) @map("is_private")
+  primaryLanguage String?          @map("primary_language")
+  readmeSummary   String?          @map("readme_summary")
+  lastIndexedAt   DateTime?        @map("last_indexed_at")
+
+  user        User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  signals     ProjectSignal[]
+  liveApps    LiveApp[]
+
+  @@unique([userId, githubRepoId])
+  @@map("projects")
+}
+
+model ProjectSignal {
+  id          String            @id @default(uuid())
+  projectId   String            @map("project_id")
+  kind        ProjectSignalKind
+  value       Json
+  filePath    String?           @map("file_path")
+  commitSha   String?           @map("commit_sha")
+  checkedAt   DateTime          @default(now()) @map("checked_at")
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  briefItems BriefItem[]
+
+  @@map("project_signals")
+}
+
+model LiveApp {
+  id              String        @id @default(uuid())
+  projectId       String        @map("project_id")
+  url             String
+  intervalMinutes Int           @default(5) @map("interval_minutes")
+  active          Boolean       @default(true)
+
+  project      Project        @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  uptimeChecks UptimeCheck[]
+
+  @@map("live_apps")
+}
+
+model UptimeCheck {
+  id          String   @id @default(uuid())
+  liveAppId   String   @map("live_app_id")
+  statusCode  Int      @map("status_code")
+  responseMs  Int      @map("response_ms")
+  checkedAt   DateTime @default(now()) @map("checked_at")
+
+  liveApp LiveApp @relation(fields: [liveAppId], references: [id], onDelete: Cascade)
+
+  @@index([liveAppId, checkedAt(sort: Desc)])
+  @@map("uptime_checks")
+}
+
+model JobPost {
+  id        String   @id @default(uuid())
+  userId    String   @map("user_id")
+  title     String
+  company   String?
+  sourceUrl String?  @map("source_url")
+  rawText   String   @map("raw_text")
+  textHash  String   @map("text_hash")
+
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  requirements Requirement[]
+  briefs       Brief[]
+
+  @@unique([userId, textHash])
+  @@map("job_posts")
+}
+
+model Requirement {
+  id         String             @id @default(uuid())
+  jobPostId  String             @map("job_post_id")
+  label      String
+  category   RequirementCategory
+  priority   RequirementPriority
+  position   Int
+
+  jobPost    JobPost     @relation(fields: [jobPostId], references: [id], onDelete: Cascade)
+  briefItems BriefItem[]
+
+  @@map("requirements")
+}
+
+model Brief {
+  id            String      @id @default(uuid())
+  userId        String      @map("user_id")
+  jobPostId     String      @map("job_post_id")
+  slug          String      @unique
+  status        BriefStatus @default(DRAFT)
+  score         Int         @default(0)
+  publishedAt   DateTime?   @map("published_at")
+
+  user       User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  jobPost    JobPost      @relation(fields: [jobPostId], references: [id], onDelete: Cascade)
+  items      BriefItem[]
+  views      BriefView[]
+
+  @@map("briefs")
+}
+
+model BriefItem {
+  id            String        @id @default(uuid())
+  briefId       String        @map("brief_id")
+  requirementId String        @map("requirement_id")
+  signalId      String?       @map("signal_id")
+  state         BriefItemState
+  note          String?
+  suggestedFix  String?       @map("suggested_fix")
+  hidden        Boolean       @default(false)
+
+  brief       Brief        @relation(fields: [briefId], references: [id], onDelete: Cascade)
+  requirement Requirement  @relation(fields: [requirementId], references: [id], onDelete: Cascade)
+  signal      ProjectSignal? @relation(fields: [signalId], references: [id])
+
+  @@map("brief_items")
+}
+
+model BriefView {
+  id         String   @id @default(uuid())
+  briefId    String   @map("brief_id")
+  visitorHash String  @map("visitor_hash")
+  isBot      Boolean  @default(false) @map("is_bot")
+  viewedAt   DateTime @default(now()) @map("viewed_at")
+
+  brief Brief @relation(fields: [briefId], references: [id], onDelete: Cascade)
+
+  @@map("brief_views")
+}
+
+model Subscription {
+  id                    String   @id @default(uuid())
+  userId                String   @unique @map("user_id")
+  stripeCustomerId      String?  @unique @map("stripe_customer_id")
+  stripeSubscriptionId  String?  @unique @map("stripe_subscription_id")
+  status                String?
+  currentPeriodEnd      DateTime? @map("current_period_end")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("subscriptions")
+}
+
+model WebhookEvent {
+  id        String   @id @default(uuid())
+  provider  String
+  eventId   String   @unique @map("event_id")
+  type      String
+  payload   Json
+  processedAt DateTime? @map("processed_at")
+
+  @@map("webhook_events")
+}

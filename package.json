@@ -1,0 +1,16 @@
+{
+  "name": "shipproof",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "pnpm --filter web dev & pnpm --filter api start:dev",
+    "build": "pnpm --filter web build && pnpm --filter api build",
+    "lint": "pnpm --filter web lint && pnpm --filter api lint",
+    "typecheck": "pnpm --filter web typecheck && pnpm --filter api typecheck",
+    "test": "pnpm --filter web test && pnpm --filter api test"
+  },
+  "devDependencies": {
+    "typescript": "^6.0.2"
+  },
+  "packageManager": "pnpm@10.27.0"
+}
